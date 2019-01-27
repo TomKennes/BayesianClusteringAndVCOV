@@ -1,0 +1,340 @@
+#Functions 
+rnormal_inverse_gamma <- function(s, S, y, m, tau){
+  S_ = S
+  if(is.null(ncol(y))){
+    y <- matrix(y, ncol = length(y))
+  }
+  mu <- matrix(rep(0, ncol(y)*nrow(y)), ncol = ncol(y), nrow = nrow(y))
+  V <- array(0, dim = c(ncol(y), ncol(y), nrow(y)))
+  for(i in 1:nrow(y)){
+    S <- S_ + (y[i,] - m) * (y[i,] - m)/(1 + tau)
+    tmp <- 1/(rgamma(ncol(y), (1 + s)/2, S/2))
+    # If I do not make use of diag here,  I will have a matrix of the form: [x,x,x,x,...] 
+    # This is due to the fact that I do not model my correlation in this part very accurately.
+    V[, , i] <- diag(tmp)
+    x <- (m + tau*y[i,])/(1 + tau)
+    mu[i, ] <-  mvrnorm(1, mu = x, Sigma = tau/(1 + tau)*V[, ,i])
+  }
+  ret <- list(mu, V)
+  names(ret) <- c("mu", "V")
+  return(ret)
+}
+
+gen_boolean <- function(x){
+  tmp <- matrix(0, nrow = length(x), ncol = length(x))
+  for(i in 1:length(x)){
+    for(j in 1:length(x)){
+      if(x[i] == x[j]){
+        tmp[i,j] = 1
+      }
+    }
+  }
+  return(tmp)
+}
+
+
+mvc_ <- function(s, p){
+  ret <- gamma((p + s)/2)*(gamma(s/2)^(-1))*s^(-p/2)
+  return(ret)
+}
+
+
+# Student T distributions!!
+q_0 <- function(s, S, y, m, tau){
+  M = (1 + tau)*S/s
+  inv_M <- solve(M)
+  det_M <- det(M)
+  if(is.matrix(y)){
+    p <- ncol(y)
+    n <- nrow(y)
+    q <- rep(mvc_(s, p)*det_M^(-1/2), nrow(y))
+    for(i in 1:nrow(y)){
+      q[i] <- q[i] * (1 + (1/s)*(t(y[i,] - m)) %*% inv_M %*% (y[i,] - m))^(-(p+s)/2)
+    }
+    return(q)
+  } else {
+    p <- length(y)
+    q <- rep(mvc_(s, p)*det_M^(-1/2), 1)
+    q <-q * (1 + (1/s)*(t(y - m)) %*% inv_M %*% (y - m))^(-(p+s)/2)
+    return(q)
+  }
+  
+}
+
+
+q_j <- function(y, mu, V){
+  det_V <- det(V)
+  inv_V <- solve(V)
+  ret <- exp(-(1/2)*(t(y - mu) %*% inv_V %*%(y - mu)))*(2 * det_V)^(-1/2)
+  return(ret)
+}
+
+
+clustered <- function(theta1, theta2, epsilon){
+  epsilon <- rep(epsilon, length(theta1))
+  if(sum((theta1 - theta2)^2 > epsilon) == 0){
+    return(T)
+  } else {
+    return(F)
+  }
+}
+
+
+n_levels <- function(x){
+  levs <- levels(as.factor(x))
+  levs <- cbind(levs, rep(0, length(levs)))
+  for(i in 1:nrow(levs)){
+    count = 0
+    for(j in 1:length(x)){
+      if(as.character(x[j]) == levs[i,1]){
+        count = count + 1
+      }
+    }
+    levs[i,2] <- count
+  }
+  return(levs)
+}
+
+
+plot.lot <- function(y, col = c(), max_colours_value = 250, main = "A Nice Plot.lot", lwd = 3){
+  m = max(y)
+  n = min(y)
+  if(length(col > 0)){
+    colours = col
+  } else {
+    colours <- matrix(runif(3*ncol(y), 0, max_colours_value), nrow = ncol(y), ncol = 3)
+  }
+  plot(y[,1], 
+       col = rgb(red = colours[1,1], green = colours[1,2], blue = colours[1,3], maxColorValue = max_colours_value), 
+       type ="l",
+       ylim = c(n,m),
+       main = main,
+       ylab = "Value",
+       xlab = "Time",
+       lwd = lwd)
+  for(i in 2:ncol(y)){
+    points(y[,i], 
+           col = rgb(red = colours[i,1], green = colours[i,2], blue = colours[i,3], maxColorValue = max_colours_value), 
+           type ="l",
+           lwd = lwd)
+  }
+}
+
+plot.timewindow <- function(y, pdf, period = 6){
+  n <- floor(nrow(y)/period)
+  pdf(pdf)
+  for(i in 0:(n - 1)){
+    x = y[(0 + period*i):(period*(i + 1)),]
+    plot.lot(x)
+  }
+  plot.lot(y[n:nrow(y),])
+  dev.off()
+}
+
+
+mat_mean <- function(x){
+  d <- dim(x)
+  mat <- matrix(0, nrow = d[1], ncol = d[2])
+  for(i in 1:d[1]){
+    for(j in 1:d[2]){
+      mat[i,j] <- mean(x[i,j,])
+    }
+  }
+  return(mat)
+}
+
+decrease <- function(x){
+  su=sort(unique(x))
+  for (i in 1:length(su)) x[x==su[i]] = i
+  return(x)
+}
+
+colMins <- function(x){
+  container <- rep(0, ncol(x))
+  for(i in 1:ncol(x)){
+    container[i] <- min(x[,i])
+  }
+  return(container)
+}
+
+if(!("MASS" %in% installed.packages())){
+  install.packages("MASS")
+  library("MASS")
+} else {
+  library("MASS")
+}
+if(!("matrixcalc" %in% installed.packages())){
+  install.packages("matrixcalc")
+  library("matrixcalc")
+} else {
+  library("matrixcalc")
+}
+install.packages("fBasics")
+require('fBasics')
+
+
+
+
+MAP <- function(clusters, prob = F, burn.in = 1){
+  M = matrix(0, nrow = ncol(clusters), ncol = ncol(clusters))
+  for(i in (burn.in +1):nrow(clusters)){
+    M_temp = matrix(0, nrow = ncol(clusters), ncol = ncol(clusters))
+    for(j in 1:length(clusters[i,])){
+      for(k in j:length(clusters[i,])){
+        if(clusters[i,j] == clusters[i,k]){
+          M_temp[j,k] = 1
+        }
+      }
+    }
+    M_temp = M_temp + t(M_temp) - diag(ncol(M_temp))
+    M = M + M_temp
+  }
+  if(prob){
+    M = M/(nrow(clusters) - burn.in)
+  }
+  return(M)
+}
+
+
+# Clustering a la escobar and west 1995
+setwd("C:/Users/Tom Kennes/Desktop/Research Master/Thesis/Core/Functions and Codes")
+data = as.matrix(read.csv("simulated data clustering.csv", sep = ";"))
+data <- data[,2:ncol(data)]
+t = 5
+
+assignation <- matrix(0, ncol= ncol(data), nrow = nrow(data))
+step = 3
+for(i_grand in (step+2):nrow(data)){
+  print(i_grand/nrow(data))
+  y = t(data[(i_grand - step):i_grand,])
+  s = 0.05
+  S = diag(colStdevs(y))*0.1
+  tau = 2
+  m <- colMeans(y)
+  N <- 1000
+  
+  y <- as.matrix(y)
+  M_y <- ncol(y)
+  N_y <- nrow(y)
+  iterations_m <- array(0, dim = c(N_y, M_y, N))
+  iterations_V <- array(0, dim = c(M_y, M_y, N_y, N))
+  tmp <- rnormal_inverse_gamma(s, S, y, m, tau)
+  iterations_m[, , 1] <- tmp$mu
+  iterations_V[, , , 1] <- tmp$V
+  clusters <- matrix(1, ncol = N_y, nrow = N)
+  clusters[1,] <- 1:N_y
+  nclusters <- rep(0, N)
+  nclusters[1] <- length(levels(as.factor(clusters[1,])))
+  alpha = 10E-4
+  fixed_variance = mean(diag(S))
+  use_fixed_variance = T
+  if(use_fixed_variance){
+    iterations_V[, , , 1] <- diag(nrow(tmp$V))*fixed_variance
+  }
+  #colnames(clusters) <- rep(paste("y", as.character(seq(1, 700, by = 1)), sep = ""))
+  
+  for(k in 2:N){
+    if(length(levels(as.factor(as.character(clusters[k-1,])))) == 1){break}
+    iterations_m[, ,k] <- iterations_m[, , k - 1]
+    iterations_V[, , , k] <- iterations_V[, , ,k - 1]
+    clusters[k,] <- clusters[k-1,]
+    for(i in 1:N_y){
+      #Set Up Probalities
+      qj <- rep(0, nrow(y))
+      for(j in 1:nrow(y)){
+        qj[j] <- q_j(y[i,], iterations_m[j, , k], iterations_V[, ,j, k])
+      }
+      qj[i] <- alpha*q_0(s, S, y[i,], iterations_m[i, ,k], tau)
+      qj <- qj/sum(qj)
+      
+      #Cluster Probabilities
+      cluster_names <- sort(as.numeric(levels(as.factor(clusters[k,]))))
+      markov <- rep(0, length(cluster_names))
+      for(j in 1:length(cluster_names)){
+        markov[j] <- sum(qj[clusters[k, ] == cluster_names[j]]) - qj[i]*(cluster_names[j] == clusters[k,i])
+      }
+      if(sum(clusters[k, ] == clusters[k,i]) > 1){
+        markov <- c(markov, qj[i])
+        cluster_names <- c(cluster_names, max(as.numeric(clusters[k,])) + 1)
+      }
+      markov <- markov/sum(markov)
+      
+      if(sum(qj == 0) != (length(qj) - 1)){
+        
+        transition <- rmultinom(1, 1, markov)
+        transition <- cluster_names[which(transition == 1)]
+        clusters[k,i] <- transition
+        if(transition == max(clusters[k,])){
+          # Meaning we have created the start of a new cluster
+          tmp <- rnormal_inverse_gamma(s, S, y[i,], y[i,], tau)
+          iterations_m[i, , k] <- tmp$mu
+          if(use_fixed_variance){
+            iterations_V[, , i, k] <- diag(nrow(tmp$V))*fixed_variance
+          } else {
+            iterations_V[, , i, k] <- tmp$V
+          }
+          
+        } else {
+          # Meaning that we are adding it to another cluster
+          y_clust <- y[clusters[k, ] == clusters[k,i],]
+          tmp <- rnormal_inverse_gamma(s, S, y[i,], colMeans(y_clust), tau)
+          iterations_m[i, ,k] <- tmp$mu
+          if(use_fixed_variance){
+            iterations_V[, , i, k] <- diag(nrow(tmp$V))*fixed_variance
+          } else {
+            iterations_V[, , i, k] <- tmp$V
+          }
+        }
+      }
+    }
+    nclusters[k] <- as.numeric(length(levels(as.factor(as.character(clusters[k,])))))
+    if(k %% 100 == 0){print(k)}
+  }
+  
+  ## An attempt to depict clusters from the results
+  MAP.P = MAP(clusters, prob = T, burn.in = round(nrow(clusters)*0.1))
+  greedy.assign <- function(MAP.P, P = 0.99, min = 0.3){
+    in.cluster <- rep(0, ncol(MAP.P))
+    clustered <- list()
+    P = P
+    while(sum(in.cluster == 0) > 0 && P > min){
+      for(i in 1:(ncol(MAP.P) - 1)){
+        for(j in (i + 1):ncol(MAP.P)){
+          if(MAP.P[i,j] > P){
+            if(in.cluster[i] == 0 && in.cluster[j] == 0){
+              clustered <- c(clustered, list(i,j))
+              in.cluster[i] <- in.cluster[j] <- length(clustered)
+            } else {
+              if(in.cluster[i] == 0){
+                if(sum(MAP.P[i,clustered[[in.cluster[j]]]] > P) == length(clustered[[in.cluster[j]]])){
+                  in.cluster[i] <- in.cluster[j]
+                }
+              } else {
+                if(in.cluster[j] == 0){
+                  if(sum(MAP.P[clustered[[in.cluster[i]]],j] > P) == length(clustered[[in.cluster[i]]])){
+                    in.cluster[j] <- in.cluster[i]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      P = P - 0.01
+    }
+    for(i in 1:length(in.cluster)){
+      if(in.cluster[i] == 0){
+        in.cluster[i] = max(in.cluster) + 1
+        clustered <- c(clustered, list(i))
+      }
+    }
+    return(in.cluster)
+  }
+  assignation[i_grand,] = greedy.assign(MAP.P, P = 0.75)
+  assignation[i_grand,] = decrease(assignation[i_grand,])
+}
+colnames(assignation) = row.names(y)
+setwd("C:/Users/Tom Kennes/Desktop/Research Master/Thesis/Core/Functions and Codes")
+write.table(as.matrix(assignation), "results for clustering simulated data.txt")
+
