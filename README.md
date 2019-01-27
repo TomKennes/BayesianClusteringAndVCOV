@@ -1,3 +1,1 @@
 # BayesianClusteringAndVCOV
-# BayesianClusteringAndVCOV
-# BayesianClusteringAndVCOV
